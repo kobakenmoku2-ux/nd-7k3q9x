@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>30秒日記</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background: #1e1e1e;
+      color: #eee;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+    }
+    .wrap {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+      box-sizing: border-box;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 16px;
+    }
+    .daterow {
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .daterow label, .note {
+      font-size: 14px;
+      color: #999;
+    }
+    input[type="date"] {
+      background: #2a2a2a;
+      color: #eee;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 16px;
+    }
+    .mic {
+      display: block;
+      width: 100%;
+      padding: 18px;
+      margin-bottom: 12px;
+      font-size: 18px;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      background: #3a3a3a;
+      color: #fff;
+      cursor: pointer;
+    }
+    .mic.on {
+      background: #d64545;
+    }
+    .mic:disabled {
+      background: #333;
+      color: #777;
+    }
+    textarea {
+      width: 100%;
+      min-height: 40vh;
+      box-sizing: border-box;
+      background: #2a2a2a;
+      color: #eee;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 16px;
+      line-height: 1.6;
+      resize: vertical;
+    }
+    .interim {
+      min-height: 22px;
+      margin: 6px 0 0;
+      font-size: 14px;
+      color: #aaa;
+    }
+    .send {
+      display: block;
+      width: 100%;
+      margin-top: 16px;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      background: #4a7dff;
+      color: #fff;
+      cursor: pointer;
+    }
+    .send:disabled {
+      background: #555;
+    }
+    .status {
+      margin-top: 12px;
+      font-size: 14px;
+      min-height: 20px;
+      color: #7fd77f;
+    }
+    .status.error {
+      color: #ff8080;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>30秒日記</h1>
+    <div class="daterow">
+      <label for="date">日付</label>
+      <input type="date" id="date">
+      <span class="note">空欄なら今日の日記</span>
+    </div>
+    <button id="micBtn" class="mic" type="button">🎤 話して入力</button>
+    <textarea id="text" placeholder="マイクボタンを押して話すか、ここに書いてください"></textarea>
+    <div class="interim" id="interim"></div>
+    <button id="sendBtn" class="send" type="button">送信する</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    // 送り先は既存のGoogleフォーム「30秒日記」。以降のシート→生ログ転記の流れは変えない
+    var FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScjg2jrWqsLw0z2p-25M-p6ETy0L_23hHLvvJgaDBWUBcnrbw/formResponse';
+    var ENTRY_TEXT = 'entry.1980869104';
+    var ENTRY_DATE = 'entry.871632993';
+
+    var textEl = document.getElementById('text');
+    var dateEl = document.getElementById('date');
+    var micBtn = document.getElementById('micBtn');
+    var sendBtn = document.getElementById('sendBtn');
+    var interimEl = document.getElementById('interim');
+    var statusEl = document.getElementById('status');
+
+    function setStatus(msg, isError) {
+      statusEl.textContent = msg;
+      statusEl.className = isError ? 'status error' : 'status';
+    }
+
+    // ---- 音声入力 ----
+    var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    var recognition = null;
+    var listening = false;
+
+    if (!Recognition) {
+      micBtn.disabled = true;
+      micBtn.textContent = 'このブラウザは音声入力に対応していません';
+    } else {
+      recognition = new Recognition();
+      recognition.lang = 'ja-JP';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = function (e) {
+        var interim = '';
+        for (var i = e.resultIndex; i < e.results.length; i++) {
+          var t = e.results[i][0].transcript;
+          if (e.results[i].isFinal) {
+            textEl.value += t;
+          } else {
+            interim += t;
+          }
+        }
+        interimEl.textContent = interim;
+      };
+
+      recognition.onerror = function (e) {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          stopListening();
+          setStatus('マイクの使用が許可されていません。ブラウザのマイク許可を確認してみてください。', true);
+        } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          setStatus('音声入力でエラーが出ました（' + e.error + '）', true);
+        }
+      };
+
+      // 無音などで認識が途中で止まっても、ボタンで止めるまでは聞き続ける
+      recognition.onend = function () {
+        interimEl.textContent = '';
+        if (listening) {
+          try { recognition.start(); } catch (err) { stopListening(); }
+        }
+      };
+    }
+
+    function startListening() {
+      listening = true;
+      micBtn.classList.add('on');
+      micBtn.textContent = '■ 止める（話し終わったら押す）';
+      setStatus('');
+      try { recognition.start(); } catch (err) { /* 既に開始済み */ }
+    }
+
+    function stopListening() {
+      listening = false;
+      micBtn.classList.remove('on');
+      micBtn.textContent = '🎤 話して入力';
+      if (recognition) recognition.stop();
+    }
+
+    micBtn.addEventListener('click', function () {
+      if (listening) {
+        stopListening();
+      } else {
+        startListening();
+      }
+    });
+
+    // ---- 送信 ----
+    sendBtn.addEventListener('click', function () {
+      if (listening) stopListening();
+      var text = textEl.value.trim();
+      if (!text) {
+        setStatus('本文が空です。', true);
+        return;
+      }
+
+      var body = new URLSearchParams();
+      body.append(ENTRY_TEXT, text);
+      if (dateEl.value) {
+        var p = dateEl.value.split('-');
+        body.append(ENTRY_DATE + '_year', p[0]);
+        body.append(ENTRY_DATE + '_month', String(Number(p[1])));
+        body.append(ENTRY_DATE + '_day', String(Number(p[2])));
+      }
+
+      sendBtn.disabled = true;
+      setStatus('送信中...');
+
+      // Googleフォームは他サイトからの送信結果を返さないため、通信が通れば送信済みとみなす
+      fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: body })
+        .then(function () {
+          sendBtn.disabled = false;
+          textEl.value = '';
+          dateEl.value = '';
+          setStatus('送信しました');
+        })
+        .catch(function () {
+          sendBtn.disabled = false;
+          setStatus('送信に失敗しました。通信状況を確認して、もう一度送ってみてください。', true);
+        });
+    });
+  </script>
+</body>
+</html>
