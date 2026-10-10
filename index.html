@@ -77,12 +77,6 @@
       line-height: 1.6;
       resize: vertical;
     }
-    .interim {
-      min-height: 22px;
-      margin: 6px 0 0;
-      font-size: 14px;
-      color: #aaa;
-    }
     .send {
       display: block;
       width: 100%;
@@ -120,7 +114,6 @@
     </div>
     <button id="micBtn" class="mic" type="button">🎤 話して入力</button>
     <textarea id="text" placeholder="マイクボタンを押して話すか、ここに書いてください"></textarea>
-    <div class="interim" id="interim"></div>
     <button id="sendBtn" class="send" type="button">送信する</button>
     <div class="status" id="status"></div>
   </div>
@@ -135,7 +128,6 @@
     var dateEl = document.getElementById('date');
     var micBtn = document.getElementById('micBtn');
     var sendBtn = document.getElementById('sendBtn');
-    var interimEl = document.getElementById('interim');
     var statusEl = document.getElementById('status');
 
     function setStatus(msg, isError) {
@@ -147,6 +139,9 @@
     var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     var recognition = null;
     var listening = false;
+    // 話し始める前に枠に入っていた文と、確定した音声の文。認識途中の文もこの後ろに直接表示する
+    var baseText = '';
+    var finalText = '';
 
     if (!Recognition) {
       micBtn.disabled = true;
@@ -162,12 +157,13 @@
         for (var i = e.resultIndex; i < e.results.length; i++) {
           var t = e.results[i][0].transcript;
           if (e.results[i].isFinal) {
-            textEl.value += t;
+            finalText += t;
           } else {
             interim += t;
           }
         }
-        interimEl.textContent = interim;
+        textEl.value = baseText + finalText + interim;
+        textEl.scrollTop = textEl.scrollHeight;
       };
 
       recognition.onerror = function (e) {
@@ -181,7 +177,9 @@
 
       // 無音などで認識が途中で止まっても、ボタンで止めるまでは聞き続ける
       recognition.onend = function () {
-        interimEl.textContent = '';
+        textEl.value = baseText + finalText;
+        baseText = textEl.value;
+        finalText = '';
         if (listening) {
           try { recognition.start(); } catch (err) { stopListening(); }
         }
@@ -193,6 +191,8 @@
       micBtn.classList.add('on');
       micBtn.textContent = '■ 止める（話し終わったら押す）';
       setStatus('');
+      baseText = textEl.value;
+      finalText = '';
       try { recognition.start(); } catch (err) { /* 既に開始済み */ }
     }
 
